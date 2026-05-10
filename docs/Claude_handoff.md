@@ -1,6 +1,6 @@
 # Claude Handoff
 
-Last session: 2026-05-10 (v2: added chapters, accept/reject, delete, Markdown report)
+Last session: 2026-05-10 (v3: demo polish — decision sources, chapter progress bar, card styling)
 
 ## Scope
 
@@ -51,6 +51,7 @@ Last session: 2026-05-10 (v2: added chapters, accept/reject, delete, Markdown re
 2. chunk size 警告（不影响运行）
 3. 中文教材标题在 DB 中存储为乱码（后端问题，非前端）
 4. 整合 stale=True 会持续影响章节列表和决策展示的准确性
+5. 决策 `source_textbooks` 字段依赖后端返回，若后端未提供则不展示
 
 ## 待 Codex 补充的后端 API
 

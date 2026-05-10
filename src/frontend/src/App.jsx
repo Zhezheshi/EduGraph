@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import ReactEChartsCore from 'echarts-for-react';
 import {
   Alert,
@@ -76,21 +77,60 @@ function formatNumber(value) {
   return value.toLocaleString('zh-CN');
 }
 
-function getBookTone(index) {
-  return BOOK_COLORS[index % BOOK_COLORS.length];
-}
-
 function getRelationLabel(type) {
   return RELATION_LABELS[type] || type || '关系';
+}
+
+function buildReportMarkdown(report, pipelineStatus) {
+  if (!report) return '';
+
+  const summary = pipelineStatus?.summary || {};
+  const integration = pipelineStatus?.integration || {};
+  const stats = report.stats || {};
+  const cases = report.key_cases || [];
+
+  const lines = [
+    '# 多教材整合摘要',
+    '',
+    `- 已注册教材：${summary.registered_books || 0} 本`,
+    `- 已解析教材：${summary.parsed_books || 0} 本`,
+    `- 已构建图谱：${summary.graph_books || 0} 本`,
+    `- 当前整合范围：${(integration.book_ids || []).join('、') || '暂无'}`,
+    `- 原始节点数：${formatNumber(integration.original_node_count || 0)}`,
+    `- 整合后节点数：${formatNumber(integration.integrated_node_count || 0)}`,
+    `- 压缩比：${formatPercent(integration.compression_ratio)}`,
+    '',
+    '## 决策统计',
+    '',
+    `- 总决策数：${formatNumber(stats.total_decisions || 0)}`,
+    `- 合并：${formatNumber(stats.merge_count || 0)}`,
+    `- 保留：${formatNumber(stats.keep_count || 0)}`,
+    `- 删除：${formatNumber(stats.remove_count || 0)}`,
+    '',
+    '## 关键案例',
+    '',
+  ];
+
+  if (!cases.length) {
+    lines.push('- 当前没有可展示的关键案例。');
+  } else {
+    cases.forEach((item) => {
+      lines.push(`- **${item.action} / ${formatPercent(item.confidence)}**：${item.reason || '暂无说明'}`);
+    });
+  }
+
+  return lines.join('\n');
 }
 
 export default function App() {
   const [textbooks, setTextbooks] = useState([]);
   const [graphData, setGraphData] = useState(null);
   const [selectedBook, setSelectedBook] = useState('merged');
+  const [selectedChapters, setSelectedChapters] = useState(null);
   const [nodeDetail, setNodeDetail] = useState(null);
   const [activeTab, setActiveTab] = useState('integration');
-  const [loading, setLoading] = useState('');
+  const [busy, setBusy] = useState('');
+  const [actionLoading, setActionLoading] = useState({});
   const [integrationStats, setIntegrationStats] = useState(null);
   const [decisions, setDecisions] = useState([]);
   const [ragStatus, setRagStatus] = useState({});
@@ -101,6 +141,10 @@ export default function App() {
   const [report, setReport] = useState(null);
   const [pipelineStatus, setPipelineStatus] = useState(null);
   const [messageApi, contextHolder] = message.useMessage();
+
+  const setButtonBusy = (key, value) => {
+    setActionLoading((prev) => ({ ...prev, [key]: value }));
+  };
 
   const refreshAll = async () => {
     try {
@@ -121,15 +165,21 @@ export default function App() {
     refreshAll();
   }, []);
 
+  useEffect(() => {
+    if (pipelineStatus?.integration?.exists && !decisions.length) {
+      refreshIntegrationData().catch(() => {});
+    }
+  }, [pipelineStatus]);
+
   const selectedBookMeta = useMemo(() => {
     if (selectedBook === 'merged') {
       return { title: '跨教材整合图谱', color: '#e11d48' };
     }
-    const index = textbooks.findIndex((item) => item.id === selectedBook);
     const book = textbooks.find((item) => item.id === selectedBook);
+    const index = textbooks.findIndex((item) => item.id === selectedBook);
     return {
       title: book?.title || '未选择教材',
-      color: getBookTone(index >= 0 ? index : 0),
+      color: BOOK_COLORS[(index >= 0 ? index : 0) % BOOK_COLORS.length],
     };
   }, [selectedBook, textbooks]);
 
@@ -145,111 +195,172 @@ export default function App() {
   }, [pipelineStatus]);
 
   const pipelineSummary = pipelineStatus?.summary || {};
+  const reportMarkdown = useMemo(() => buildReportMarkdown(report, pipelineStatus), [report, pipelineStatus]);
 
   const handleUpload = async (files) => {
     if (!files?.length) return;
-    setLoading('上传教材中...');
+    setBusy('上传教材中...');
     try {
       await api.uploadTextbooks(Array.from(files));
       await refreshAll();
       messageApi.success('教材上传成功');
     } catch (error) {
-      messageApi.error(`上传失败: ${error.message}`);
+      messageApi.error(`上传失败：${error.message}`);
     } finally {
-      setLoading('');
+      setBusy('');
     }
   };
 
   const handleParseAll = async () => {
-    setLoading('解析教材中...');
+    setButtonBusy('parseAll', true);
     try {
       await api.parseAll(true);
       await refreshAll();
       messageApi.success('教材解析完成');
     } catch (error) {
-      messageApi.error(`解析失败: ${error.message}`);
+      messageApi.error(`解析失败：${error.message}`);
     } finally {
-      setLoading('');
-    }
-  };
-
-  const handleBuildKG = async (bookId) => {
-    setLoading(`构建 ${bookId} 图谱中...`);
-    try {
-      const result = await api.buildKG(bookId, { maxChapters: 3 });
-      await refreshAll();
-      messageApi.success(`${bookId} 图谱完成：${result.nodes} 节点 / ${result.edges} 边`);
-    } catch (error) {
-      messageApi.error(`构建失败: ${error.message}`);
-    } finally {
-      setLoading('');
+      setButtonBusy('parseAll', false);
     }
   };
 
   const handleBuildAllKG = async () => {
-    setLoading('批量构建图谱中...');
+    setButtonBusy('buildAllKG', true);
     try {
       const result = await api.buildAllKG({ maxChapters: 3 });
       await refreshAll();
       messageApi.success(`批量完成：built ${result.built} / resumed ${result.resumed} / skipped ${result.skipped}`);
     } catch (error) {
-      messageApi.error(`批量构建失败: ${error.message}`);
+      messageApi.error(`批量构建失败：${error.message}`);
     } finally {
-      setLoading('');
+      setButtonBusy('buildAllKG', false);
+    }
+  };
+
+  const handleBuildKG = async (bookId) => {
+    setButtonBusy(`build:${bookId}`, true);
+    try {
+      const result = await api.buildKG(bookId, { maxChapters: 3 });
+      await refreshAll();
+      if (selectedBook === bookId) {
+        const chapterData = await api.getKGChapters(bookId).catch(() => null);
+        setSelectedChapters(chapterData);
+      }
+      messageApi.success(`${bookId} 图谱完成：${result.nodes} 节点 / ${result.edges} 边`);
+    } catch (error) {
+      messageApi.error(`构建失败：${error.message}`);
+    } finally {
+      setButtonBusy(`build:${bookId}`, false);
+    }
+  };
+
+  const handleDeleteTextbook = async (bookId) => {
+    setButtonBusy(`delete:${bookId}`, true);
+    try {
+      const result = await api.deleteTextbook(bookId);
+      if (selectedBook === bookId) {
+        setSelectedBook('merged');
+        setSelectedChapters(null);
+        setGraphData(null);
+        setNodeDetail(null);
+      }
+      await refreshAll();
+      if (result.integration_invalidated || result.rag_invalidated) {
+        messageApi.warning(`教材已删除，${result.integration_invalidated ? '整合结果' : ''}${result.integration_invalidated && result.rag_invalidated ? '和' : ''}${result.rag_invalidated ? 'RAG 索引' : ''}已失效。`);
+      } else {
+        messageApi.success('教材已删除');
+      }
+    } catch (error) {
+      messageApi.error(`删除失败：${error.message}`);
+    } finally {
+      setButtonBusy(`delete:${bookId}`, false);
     }
   };
 
   const handleShowGraph = async (bookId) => {
     setSelectedBook(bookId);
     setNodeDetail(null);
+    setBusy('加载图谱中...');
     try {
-      const data = bookId === 'merged' ? await api.getMergedKG() : await api.getKG(bookId);
-      setGraphData(data);
+      const [graph, chapterData] = await Promise.all([
+        bookId === 'merged' ? api.getMergedKG() : api.getKG(bookId),
+        bookId === 'merged' ? Promise.resolve(null) : api.getKGChapters(bookId).catch(() => null),
+      ]);
+      setGraphData(graph);
+      setSelectedChapters(chapterData);
     } catch (error) {
-      messageApi.error(`图谱加载失败: ${error.message}`);
+      messageApi.error(`图谱加载失败：${error.message}`);
+    } finally {
+      setBusy('');
     }
   };
 
   const handleRunIntegration = async () => {
-    setLoading('运行跨教材整合中...');
+    setButtonBusy('integration', true);
     try {
       const result = await api.runIntegration();
-      const [stats, nextDecisions] = await Promise.all([api.getStats(), api.getDecisions()]);
-      setIntegrationStats(stats);
-      setDecisions(nextDecisions);
+      await refreshIntegrationData();
       await refreshAll();
       messageApi.success(`整合完成：${result.integrated_nodes} 节点，压缩比 ${result.compression_ratio}`);
     } catch (error) {
-      messageApi.error(`整合失败: ${error.message}`);
+      messageApi.error(`整合失败：${error.message}`);
     } finally {
-      setLoading('');
+      setButtonBusy('integration', false);
+    }
+  };
+
+  const refreshIntegrationData = async () => {
+    const [stats, nextDecisions] = await Promise.all([
+      api.getStats().catch(() => null),
+      api.getDecisions().catch(() => []),
+    ]);
+    setIntegrationStats(stats);
+    setDecisions(nextDecisions);
+  };
+
+  const handleDecisionStatus = async (decisionId, action) => {
+    const key = `${action}:${decisionId}`;
+    setButtonBusy(key, true);
+    try {
+      if (action === 'accept') {
+        await api.acceptDecision(decisionId);
+      } else {
+        await api.rejectDecision(decisionId);
+      }
+      await refreshIntegrationData();
+      await refreshAll();
+      messageApi.success(`决策已${action === 'accept' ? '接受' : '驳回'}`);
+    } catch (error) {
+      messageApi.error(`操作失败：${error.message}`);
+    } finally {
+      setButtonBusy(key, false);
     }
   };
 
   const handleBuildRAGIndex = async () => {
-    setLoading('构建 RAG 索引中...');
+    setButtonBusy('ragIndex', true);
     try {
       const status = await api.buildIndex({ maxChapters: 3 });
       setRagStatus(status);
       await refreshAll();
-      messageApi.success(`RAG 索引完成：${status.total_chunks} chunks`);
+      messageApi.success(`RAG 索引完成：${status.total_chunks} 个 chunks`);
     } catch (error) {
-      messageApi.error(`索引构建失败: ${error.message}`);
+      messageApi.error(`索引构建失败：${error.message}`);
     } finally {
-      setLoading('');
+      setButtonBusy('ragIndex', false);
     }
   };
 
   const handleRAGQuery = async () => {
     if (!ragQuestion.trim()) return;
-    setLoading('检索并生成回答中...');
+    setButtonBusy('ragQuery', true);
     try {
       const response = await api.query(ragQuestion);
       setRagAnswer(response);
     } catch (error) {
-      messageApi.error(`问答失败: ${error.message}`);
+      messageApi.error(`问答失败：${error.message}`);
     } finally {
-      setLoading('');
+      setButtonBusy('ragQuery', false);
     }
   };
 
@@ -258,7 +369,7 @@ export default function App() {
     const userInput = chatInput;
     setChatHistory((prev) => [...prev, { role: 'user', content: userInput }]);
     setChatInput('');
-
+    setButtonBusy('chat', true);
     try {
       const response = await api.sendChat(userInput);
       setChatHistory((prev) => [
@@ -268,17 +379,22 @@ export default function App() {
     } catch (error) {
       setChatHistory((prev) => [
         ...prev,
-        { role: 'assistant', content: `发送失败: ${error.message}`, actions: [] },
+        { role: 'assistant', content: `发送失败：${error.message}`, actions: [] },
       ]);
+    } finally {
+      setButtonBusy('chat', false);
     }
   };
 
   const handleLoadReport = async () => {
+    setButtonBusy('report', true);
     try {
       const data = await api.getReport();
       setReport(data);
     } catch (error) {
-      messageApi.error(`报告加载失败: ${error.message}`);
+      messageApi.error(`报告加载失败：${error.message}`);
+    } finally {
+      setButtonBusy('report', false);
     }
   };
 
@@ -288,9 +404,7 @@ export default function App() {
     const categoryMap = {};
     graphData.nodes.forEach((node) => {
       const key = node.textbook_id || 'integrated';
-      if (!(key in categoryMap)) {
-        categoryMap[key] = Object.keys(categoryMap).length;
-      }
+      if (!(key in categoryMap)) categoryMap[key] = Object.keys(categoryMap).length;
     });
 
     const nodes = graphData.nodes.map((node) => {
@@ -431,7 +545,7 @@ export default function App() {
         <div className="panel-scroll">
           <Card className="panel-card">
             <Space direction="vertical" size={14} style={{ width: '100%' }}>
-              <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRunIntegration} block>
+              <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRunIntegration} loading={!!actionLoading.integration} block>
                 运行跨教材整合
               </Button>
               <Row gutter={12}>
@@ -463,11 +577,39 @@ export default function App() {
                       <Tag color={decision.action === 'merge' ? 'blue' : decision.action === 'keep' ? 'green' : 'orange'}>
                         {decision.action}
                       </Tag>
+                      <Tag color={decision.status === 'accepted' ? 'green' : decision.status === 'rejected' ? 'red' : 'default'}>
+                        {decision.status || 'pending'}
+                      </Tag>
                       <Text type="secondary">{formatPercent(decision.confidence)}</Text>
                     </Space>
+                    {decision.source_textbooks?.length ? (
+                      <div className="decision-source">
+                        {decision.source_textbooks.map((tb) => (
+                          <Tag key={tb} color="purple">{tb}</Tag>
+                        ))}
+                      </div>
+                    ) : null}
                     <Paragraph ellipsis={{ rows: 2, expandable: true }} style={{ marginBottom: 0 }}>
                       {decision.reason || '暂无说明'}
                     </Paragraph>
+                    <Space size={8}>
+                      <Button
+                        size="small"
+                        onClick={() => handleDecisionStatus(decision.decision_id, 'accept')}
+                        loading={!!actionLoading[`accept:${decision.decision_id}`]}
+                      >
+                        接受
+                      </Button>
+                      <Button
+                        size="small"
+                        danger
+                        ghost
+                        onClick={() => handleDecisionStatus(decision.decision_id, 'reject')}
+                        loading={!!actionLoading[`reject:${decision.decision_id}`]}
+                      >
+                        驳回
+                      </Button>
+                    </Space>
                   </div>
                 ))}
               </Space>
@@ -485,7 +627,7 @@ export default function App() {
         <div className="panel-scroll">
           <Card className="panel-card">
             <Space direction="vertical" size={14} style={{ width: '100%' }}>
-              <Button onClick={handleBuildRAGIndex} icon={<BuildOutlined />} block>
+              <Button onClick={handleBuildRAGIndex} icon={<BuildOutlined />} loading={!!actionLoading.ragIndex} block>
                 重建 RAG 索引
               </Button>
               <Space wrap>
@@ -499,6 +641,7 @@ export default function App() {
                 value={ragQuestion}
                 onChange={(event) => setRagQuestion(event.target.value)}
                 onSearch={handleRAGQuery}
+                loading={!!actionLoading.ragQuery}
                 enterButton="提问"
                 placeholder="输入教材问答问题，例如：什么是炎症？"
               />
@@ -569,7 +712,7 @@ export default function App() {
                 rows={4}
                 placeholder="输入教师反馈，例如：请解释为什么合并这两个知识点。"
               />
-              <Button type="primary" onClick={handleChat}>
+              <Button type="primary" onClick={handleChat} loading={!!actionLoading.chat}>
                 发送反馈
               </Button>
             </Space>
@@ -583,7 +726,7 @@ export default function App() {
       children: (
         <div className="panel-scroll">
           <Card className="panel-card">
-            <Button onClick={handleLoadReport} icon={<ReloadOutlined />} block>
+            <Button onClick={handleLoadReport} loading={!!actionLoading.report} icon={<ReloadOutlined />} block>
               刷新报告数据
             </Button>
           </Card>
@@ -598,26 +741,8 @@ export default function App() {
                   <Col span={8}><Statistic title="删除" value={report.stats?.remove_count || 0} /></Col>
                 </Row>
               </Card>
-              <Card className="panel-card" title="报告摘要">
-                <Paragraph>当前系统已经纳入 {pipelineSummary.registered_books || 0} 本教材，完成解析 {pipelineSummary.parsed_books || 0} 本、图谱构建 {pipelineSummary.graph_books || 0} 本。</Paragraph>
-                <Paragraph>最新整合结果包含 {report.stats?.total_decisions || 0} 条决策，当前压缩比为 {formatPercent(pipelineStatus?.integration?.compression_ratio)}。</Paragraph>
-              </Card>
-              <Card className="panel-card" title="关键案例">
-                {report.key_cases?.length ? (
-                  <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                    {report.key_cases.map((item) => (
-                      <div key={item.decision_id} className="decision-row">
-                        <Space align="center" size={8}>
-                          <Tag>{item.action}</Tag>
-                          <Text type="secondary">{formatPercent(item.confidence)}</Text>
-                        </Space>
-                        <Paragraph style={{ marginBottom: 0 }}>{item.reason}</Paragraph>
-                      </div>
-                    ))}
-                  </Space>
-                ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关键案例" />
-                )}
+              <Card className="panel-card markdown-report-card" title="报告内容">
+                <ReactMarkdown>{reportMarkdown}</ReactMarkdown>
               </Card>
             </>
           ) : (
@@ -633,9 +758,9 @@ export default function App() {
   return (
     <Layout className="app-shell">
       {contextHolder}
-      {loading ? (
+      {busy ? (
         <div className="loading-overlay">
-          <Spin size="large" tip={loading} />
+          <Spin size="large" tip={busy} />
         </div>
       ) : null}
 
@@ -662,8 +787,8 @@ export default function App() {
             <Text className="eyebrow">Current Run</Text>
             <Title level={2}>全屏知识图谱工作台</Title>
             <Paragraph>
-              当前页面已调整为全屏填充布局，左侧管理教材与流程，中间展示图谱，右侧展示整合、RAG、对话与报告，
-              不再只是一条中间工作带。
+              左侧管理教材与章节覆盖，中间展示图谱主视图，右侧用于整合、RAG、对话和报告。
+              这次补上了章节列表视图、报告阅读层和更细的局部加载反馈。
             </Paragraph>
             <Space wrap>
               <Badge status={pipelineStatus?.integration?.stale ? 'error' : 'success'} text={pipelineStatus?.integration?.stale ? '整合待刷新' : '整合已同步'} />
@@ -707,18 +832,19 @@ export default function App() {
 
                 <Row gutter={[10, 10]}>
                   <Col span={12}>
-                    <Button block onClick={handleParseAll}>解析全部</Button>
+                    <Button block onClick={handleParseAll} loading={!!actionLoading.parseAll}>解析全部</Button>
                   </Col>
                   <Col span={12}>
-                    <Button block type="primary" icon={<BuildOutlined />} onClick={handleBuildAllKG}>批量建图</Button>
+                    <Button block type="primary" icon={<BuildOutlined />} onClick={handleBuildAllKG} loading={!!actionLoading.buildAllKG}>批量建图</Button>
                   </Col>
                 </Row>
 
                 <Divider style={{ margin: '4px 0 0' }} />
+
                 <div className="book-list">
                   {textbooks.map((book, index) => {
                     const statusItem = pipelineStatus?.textbooks?.find((item) => item.book_id === book.id);
-                    const tone = getBookTone(index);
+                    const tone = BOOK_COLORS[index % BOOK_COLORS.length];
                     return (
                       <div
                         key={book.id}
@@ -728,19 +854,69 @@ export default function App() {
                       >
                         <div className="book-row-main">
                           <Text strong>{book.title}</Text>
-                          <Text type="secondary">{book.total_pages || statusItem?.parsed?.total_pages || 0} 页 · {book.total_chars ? formatNumber(book.total_chars) : '--'} 字</Text>
+                          <Text type="secondary">
+                            {book.total_pages || statusItem?.parsed?.total_pages || 0} 页 · {book.total_chars ? formatNumber(book.total_chars) : '--'} 字
+                          </Text>
                           <div className="book-meta-inline">
                             <Tag color={book.status === 'parsed' ? 'green' : 'blue'}>{book.status}</Tag>
                             <Tag>{statusItem?.knowledge_graph?.chapters_processed || 0}/{statusItem?.knowledge_graph?.chapters_total || 0} 章图谱</Tag>
                           </div>
                         </div>
                         <div className="book-actions">
-                          <Button size="small" type="link" onClick={(event) => { event.stopPropagation(); handleBuildKG(book.id); }}>建图</Button>
+                          <Space direction="vertical" size={0}>
+                            <Button
+                              size="small"
+                              type="link"
+                              loading={!!actionLoading[`build:${book.id}`]}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleBuildKG(book.id);
+                              }}
+                            >
+                              建图
+                            </Button>
+                            <Button
+                              size="small"
+                              type="link"
+                              danger
+                              loading={!!actionLoading[`delete:${book.id}`]}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteTextbook(book.id);
+                              }}
+                            >
+                              删除
+                            </Button>
+                          </Space>
                         </div>
                       </div>
                     );
                   })}
                 </div>
+
+                {selectedBook !== 'merged' && selectedChapters ? (
+                  <Card size="small" className="chapter-card" title={`章节覆盖 · 已建图 ${selectedChapters.processed_chapters}/${selectedChapters.total_chapters}`}>
+                    <div className="chapter-progress">
+                      <div
+                        className="chapter-progress-fill"
+                        style={{ width: `${selectedChapters.total_chapters ? (selectedChapters.processed_chapters / selectedChapters.total_chapters) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <div className="chapter-list" style={{ marginTop: 10 }}>
+                      {selectedChapters.chapters.map((chapter) => (
+                        <div key={chapter.chapter_id} className={`chapter-row ${chapter.is_processed ? 'processed' : ''}`}>
+                          <div className="chapter-row-main">
+                            <Text strong>{chapter.sequence}. {chapter.title}</Text>
+                            <Text type="secondary">第 {chapter.page_start}-{chapter.page_end} 页 · {formatNumber(chapter.char_count)} 字</Text>
+                          </div>
+                          <Tag color={chapter.is_processed ? 'green' : 'default'}>
+                            {chapter.is_processed ? '已建图' : '未建图'}
+                          </Tag>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                ) : null}
 
                 <Button icon={<CloudServerOutlined />} onClick={() => handleShowGraph('merged')} block type={selectedBook === 'merged' ? 'primary' : 'default'}>
                   查看整合图谱
