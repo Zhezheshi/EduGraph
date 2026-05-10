@@ -1,7 +1,10 @@
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from .config import settings
 from .database import init_db
@@ -47,3 +50,16 @@ app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "token_usage": llm_client.get_token_usage()}
+
+
+# Serve frontend static files
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        file_path = FRONTEND_DIST / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(FRONTEND_DIST / "index.html")
