@@ -12,6 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
+COPY src/__init__.py /home/user/app/src/__init__.py
 COPY src/backend/ /home/user/app/src/backend/
 COPY src/frontend/dist/ /home/user/app/src/frontend/dist/
 COPY .env.example /home/user/app/.env.example
