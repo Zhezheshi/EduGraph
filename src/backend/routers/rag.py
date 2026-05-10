@@ -23,6 +23,8 @@ def get_rag_engine():
 async def build_index(max_chapters: int = 0, books: str = "", usable_only: bool = True):
     engine = get_rag_engine()
     textbooks = []
+    engine.max_chapters = max_chapters
+    engine.usable_only = usable_only
     # Determine which books to index
     target_ids = books.split(",") if books else []
     for p in sorted(settings.parsed_dir.glob("*.json")):

@@ -10,6 +10,18 @@ EduGraph Agent 面向多本医学教材的知识整合场景。系统从教材 P
 
 ## 快速启动
 
+### Docker 一键部署（推荐）
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入 DASHSCOPE_API_KEY
+docker-compose up -d
+```
+
+前端访问 `http://localhost:3000`，后端 API `http://localhost:8000`。
+
+### 手动启动
+
 ### 环境要求
 
 - Python 3.13+
@@ -37,7 +49,12 @@ cp .env.example .env
 ### 启动服务
 
 ```bash
-# 后端（在 src/ 目录下运行）
+# 方式一：脚本启动（推荐）
+chmod +x start.sh
+./start.sh
+
+# 方式二：手动启动
+# 后端
 cd src
 python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
@@ -67,15 +84,20 @@ npm run dev
 - `GET /api/textbooks` — 列表
 - `POST /api/textbooks/{id}/parse` — 解析单本
 - `POST /api/textbooks/parse-all` — 解析全部
+- `DELETE /api/textbooks/{id}` — 删除教材
 
 ### 知识图谱
 - `POST /api/kg/build/{book_id}` — 构建单本图谱
 - `GET /api/kg/{book_id}` — 获取单本图谱
+- `GET /api/kg/{book_id}/chapters` — 章节覆盖列表
 - `GET /api/kg/merged` — 获取整合图谱
 
 ### 跨教材整合
 - `POST /api/integration/run` — 执行整合
 - `GET /api/integration/decisions` — 决策列表
+- `GET /api/integration/decisions/{id}` — 决策详情
+- `POST /api/integration/decisions/{id}/accept` — 接受决策
+- `POST /api/integration/decisions/{id}/reject` — 驳回决策
 - `GET /api/integration/stats` — 统计数据
 
 ### RAG 问答

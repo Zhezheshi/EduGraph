@@ -505,6 +505,23 @@ body {
   gap: 6px;
 }
 
+.graph-search .ant-input {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-color: rgba(100, 116, 139, 0.5) !important;
+  color: #e2e8f0 !important;
+  border-radius: 8px;
+}
+
+.graph-search .ant-input::placeholder {
+  color: #64748b !important;
+}
+
+.graph-search .ant-input-search-button {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-color: rgba(100, 116, 139, 0.5) !important;
+  color: #94a3b8 !important;
+}
+
 .status-rail {
   height: 42px;
   display: flex;

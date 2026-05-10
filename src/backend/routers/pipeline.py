@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from ..config import settings
 from ..database import SessionLocal, TextbookDB
 from ..state import load_integration_result, load_knowledge_graph, load_parsed_textbook
+from ..services.chapter_selection import select_chapters
 from .knowledge_graph import run_kg_build
 from .rag import get_rag_engine
 
@@ -28,6 +29,13 @@ def _list_registered_books():
 def _parse_timestamp(value: str | None) -> datetime | None:
     if not value:
         return None
+
+
+def _chapter_scope_matches(known: dict[str, list[str]] | None, current: dict[str, list[str]]) -> bool:
+    if not known:
+        return False
+    normalized_known = {book_id: list(chapter_ids) for book_id, chapter_ids in known.items()}
+    return normalized_known == current
     normalized = value.replace("Z", "+00:00")
     try:
         return datetime.fromisoformat(normalized)
@@ -46,10 +54,13 @@ async def get_pipeline_status():
     integration_time = _parse_timestamp(integration.built_at) if integration else None
     rag_time = _parse_timestamp(rag_status.built_at)
     textbook_statuses = []
+    current_graph_scope = {}
 
     for book in books:
         parsed = load_parsed_textbook(book.id, settings)
         kg = load_knowledge_graph(book.id, settings)
+        if kg:
+            current_graph_scope[book.id] = list(kg.chapter_ids)
 
         textbook_statuses.append({
             "book_id": book.id,
@@ -77,26 +88,45 @@ async def get_pipeline_status():
         })
 
     integration_stale = False
-    if integration and integration_time:
-        for item in textbook_statuses:
-            if item["book_id"] not in integration_books:
-                continue
-            graph_time = _parse_timestamp(item["knowledge_graph"]["built_at"])
-            if graph_time and graph_time > integration_time:
-                integration_stale = True
-                break
+    if integration:
+        expected_scope = {book_id: current_graph_scope.get(book_id, []) for book_id in integration.book_ids}
+        if not _chapter_scope_matches(integration.per_book_chapter_ids, expected_scope):
+            integration_stale = True
+        elif integration_time:
+            for item in textbook_statuses:
+                if item["book_id"] not in integration_books:
+                    continue
+                graph_time = _parse_timestamp(item["knowledge_graph"]["built_at"])
+                if graph_time and graph_time > integration_time:
+                    integration_stale = True
+                    break
 
     rag_stale = False
-    if rag_time:
-        for item in textbook_statuses:
-            if item["book_id"] not in rag_books:
-                continue
-            parsed_path = settings.parsed_dir / f"{item['book_id']}.json"
-            if parsed_path.exists():
-                parsed_time = datetime.fromtimestamp(parsed_path.stat().st_mtime, tz=timezone.utc)
-                if parsed_time > rag_time:
-                    rag_stale = True
-                    break
+    current_rag_scope = {}
+    for book in books:
+        parsed = load_parsed_textbook(book.id, settings)
+        if not parsed or book.id not in rag_books:
+            continue
+        selected = select_chapters(
+            parsed.chapters,
+            max_chapters=rag_status.max_chapters,
+            usable_only=rag_status.usable_only,
+        )
+        current_rag_scope[book.id] = [chapter.chapter_id for chapter in selected]
+
+    if rag_books:
+        if not _chapter_scope_matches(rag_status.per_book_chapter_ids, current_rag_scope):
+            rag_stale = True
+        elif rag_time:
+            for item in textbook_statuses:
+                if item["book_id"] not in rag_books:
+                    continue
+                parsed_path = settings.parsed_dir / f"{item['book_id']}.json"
+                if parsed_path.exists():
+                    parsed_time = datetime.fromtimestamp(parsed_path.stat().st_mtime, tz=timezone.utc)
+                    if parsed_time > rag_time:
+                        rag_stale = True
+                        break
 
     return {
         "summary": {

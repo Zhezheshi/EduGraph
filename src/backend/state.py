@@ -104,17 +104,8 @@ def enrich_knowledge_graph_metadata(graph: KnowledgeGraph, parsed: ParsedTextboo
     if parsed:
         if not graph.chapters_total:
             graph.chapters_total = len(parsed.chapters)
-        if not graph.chapter_ids:
-            chapter_ids = []
-            seen_titles = {node.chapter for node in graph.nodes}
-            for chapter in parsed.chapters:
-                if chapter.title in seen_titles:
-                    chapter_ids.append(chapter.chapter_id)
-            graph.chapter_ids = chapter_ids
-        if not graph.chapters_processed:
-            graph.chapters_processed = len(graph.chapter_ids)
-    else:
-        graph.chapters_processed = graph.chapters_processed or len(graph.chapter_ids)
+    graph.chapter_ids = list(dict.fromkeys(graph.chapter_ids))
+    graph.chapters_processed = len(graph.chapter_ids)
     return graph
 
 
@@ -129,6 +120,11 @@ def enrich_integration_result_metadata(result: IntegrationResult) -> Integration
                 if "_node_" in node_id:
                     book_ids.add(node_id.split("_node_", 1)[0])
         result.book_ids = sorted(book_ids)
+    if result.per_book_chapter_ids:
+        result.per_book_chapter_ids = {
+            book_id: list(dict.fromkeys(chapter_ids))
+            for book_id, chapter_ids in result.per_book_chapter_ids.items()
+        }
     result.alignment_group_count = result.alignment_group_count or len(result.decisions)
     return result
 

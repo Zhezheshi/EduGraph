@@ -4,11 +4,10 @@ import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from sqlalchemy import or_
 
 from ..database import SessionLocal, TextbookDB
 from ..config import settings
-from ..state import save_parsed_textbook
+from ..state import app_state, load_integration_result, save_parsed_textbook
 
 from ..services.parser import parse_pdf, parse_txt, parse_md
 
@@ -174,3 +173,103 @@ async def parse_all_textbooks(force: bool = False, books: str = ""):
     finally:
         db.close()
     return results
+
+
+def _delete_if_exists(path: Path) -> bool:
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+def _invalidate_integration_if_needed(book_id: str) -> bool:
+    result = load_integration_result(settings)
+    if not result or book_id not in result.book_ids:
+        return False
+
+    result_path = settings.integrated_dir / "result.json"
+    _delete_if_exists(result_path)
+    app_state["integration_result"] = None
+    app_state["alignment_groups"] = []
+    app_state["alignment_scope"] = []
+    return True
+
+
+def _invalidate_rag_if_needed(book_id: str) -> bool:
+    meta_path = settings.index_dir / "meta.json"
+    chunks_path = settings.index_dir / "chunks.json"
+    embeddings_path = settings.index_dir / "embeddings.npy"
+
+    indexed_book_ids = set()
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            indexed_book_ids = set(meta.get("indexed_book_ids", []))
+        except Exception:
+            logger.exception("Failed to inspect RAG meta during textbook deletion")
+
+    if not indexed_book_ids and chunks_path.exists():
+        try:
+            raw_chunks = json.loads(chunks_path.read_text(encoding="utf-8"))
+            indexed_book_ids = {chunk.get("textbook_id") for chunk in raw_chunks if chunk.get("textbook_id")}
+        except Exception:
+            logger.exception("Failed to inspect RAG chunks during textbook deletion")
+
+    if book_id not in indexed_book_ids:
+        return False
+
+    _delete_if_exists(meta_path)
+    _delete_if_exists(chunks_path)
+    _delete_if_exists(embeddings_path)
+
+    try:
+        from .rag import rag_engine
+
+        if rag_engine is not None:
+            rag_engine.embeddings_np = None
+            rag_engine.chunks = []
+            rag_engine.indexed_textbooks = []
+            rag_engine.indexed_book_ids = []
+            rag_engine.built_at = None
+    except Exception:
+        logger.exception("Failed to reset in-memory RAG engine during textbook deletion")
+
+    return True
+
+
+@router.delete("/{book_id}")
+async def delete_textbook(book_id: str):
+    db = SessionLocal()
+    try:
+        book = db.query(TextbookDB).filter_by(id=book_id).first()
+        if not book:
+            raise HTTPException(404, "Textbook not found")
+
+        storage_path = settings.textbook_dir / book.filename
+        parsed_path = settings.parsed_dir / f"{book_id}.json"
+        graph_path = settings.graph_dir / f"{book_id}.json"
+
+        db.delete(book)
+        db.commit()
+
+        deleted_files = {
+            "textbook": _delete_if_exists(storage_path),
+            "parsed": _delete_if_exists(parsed_path),
+            "graph": _delete_if_exists(graph_path),
+        }
+
+        app_state["parsed_textbooks"].pop(book_id, None)
+        app_state["knowledge_graphs"].pop(book_id, None)
+
+        integration_invalidated = _invalidate_integration_if_needed(book_id)
+        rag_invalidated = _invalidate_rag_if_needed(book_id)
+
+        return {
+            "status": "deleted",
+            "book_id": book_id,
+            "deleted_files": deleted_files,
+            "integration_invalidated": integration_invalidated,
+            "rag_invalidated": rag_invalidated,
+        }
+    finally:
+        db.close()

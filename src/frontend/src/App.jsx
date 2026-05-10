@@ -12,6 +12,7 @@ import {
   Input,
   Layout,
   Row,
+  Select,
   Space,
   Spin,
   Statistic,
@@ -128,6 +129,8 @@ export default function App() {
   const [selectedBook, setSelectedBook] = useState('merged');
   const [selectedChapters, setSelectedChapters] = useState(null);
   const [nodeDetail, setNodeDetail] = useState(null);
+  const [graphSearch, setGraphSearch] = useState('');
+  const [graphBookFilter, setGraphBookFilter] = useState([]);
   const [activeTab, setActiveTab] = useState('integration');
   const [busy, setBusy] = useState('');
   const [actionLoading, setActionLoading] = useState({});
@@ -401,6 +404,10 @@ export default function App() {
   const buildGraphOption = () => {
     if (!graphData?.nodes?.length) return null;
 
+    const searchLower = graphSearch.toLowerCase();
+    const hasFilter = graphBookFilter.length > 0;
+    const hasSearch = searchLower.length > 0;
+
     const categoryMap = {};
     graphData.nodes.forEach((node) => {
       const key = node.textbook_id || 'integrated';
@@ -412,11 +419,16 @@ export default function App() {
       const color = BOOK_COLORS[colorIndex % BOOK_COLORS.length];
       const size = Math.min(58, Math.max(18, 18 + (node.frequency || 1) * 6 + (node.importance || 0.5) * 14));
 
+      const matchesFilter = !hasFilter || graphBookFilter.includes(node.textbook_id);
+      const matchesSearch = !hasSearch || (node.name || '').toLowerCase().includes(searchLower);
+      const visible = matchesFilter;
+      const highlighted = hasSearch && matchesSearch;
+
       return {
         id: node.id,
         name: node.name,
         category: colorIndex,
-        symbolSize: size,
+        symbolSize: visible ? size : 0,
         itemStyle: {
           color: {
             type: 'radial',
@@ -428,15 +440,17 @@ export default function App() {
               { offset: 1, color },
             ],
           },
-          borderColor: 'rgba(255,255,255,0.72)',
-          borderWidth: 2,
-          shadowBlur: 16,
-          shadowColor: `${color}55`,
+          borderColor: highlighted ? '#facc15' : 'rgba(255,255,255,0.72)',
+          borderWidth: highlighted ? 3 : 2,
+          shadowBlur: highlighted ? 24 : 16,
+          shadowColor: highlighted ? '#facc1588' : `${color}55`,
+          opacity: hasSearch && !highlighted ? 0.18 : 1,
         },
         label: {
-          show: size >= 28,
-          color: '#e5eefb',
-          fontSize: size >= 36 ? 12 : 10,
+          show: size >= 28 && visible,
+          color: highlighted ? '#facc15' : '#e5eefb',
+          fontSize: highlighted ? 13 : size >= 36 ? 12 : 10,
+          fontWeight: highlighted ? 700 : undefined,
           formatter: ({ name }) => (name.length > 10 ? `${name.slice(0, 10)}…` : name),
         },
         data: node,
@@ -537,6 +551,66 @@ export default function App() {
     };
   };
 
+  const sankeyOption = useMemo(() => {
+    if (!decisions.length || !textbooks.length) return null;
+
+    const bookNodeMap = {};
+    textbooks.forEach((b, i) => {
+      bookNodeMap[b.id] = { name: b.title, index: i };
+    });
+
+    const sourceNodes = textbooks.map((b) => ({
+      name: b.title,
+      itemStyle: { color: BOOK_COLORS[textbooks.indexOf(b) % BOOK_COLORS.length] },
+    }));
+
+    const targetNames = ['已合并', '已保留', '已移除'];
+    const targetColors = ['#3b82f6', '#10b981', '#f59e0b'];
+    const targetNodes = targetNames.map((n, i) => ({
+      name: n,
+      itemStyle: { color: targetColors[i] },
+    }));
+
+    const actionToTarget = { merge: '已合并', keep: '已保留', remove: '已移除' };
+    const linkCount = {};
+    decisions.forEach((d) => {
+      const target = actionToTarget[d.action] || '已保留';
+      (d.source_textbooks || []).forEach((tbTitle) => {
+        const key = `${tbTitle}|||${target}`;
+        linkCount[key] = (linkCount[key] || 0) + 1;
+      });
+    });
+
+    const links = Object.entries(linkCount).map(([key, value]) => {
+      const [source, target] = key.split('|||');
+      return { source, target, value };
+    });
+
+    if (!links.length) return null;
+
+    return {
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+      series: [{
+        type: 'sankey',
+        layout: 'none',
+        emphasis: { focus: 'adjacency' },
+        nodeAlign: 'left',
+        nodeWidth: 20,
+        nodeGap: 14,
+        layoutIterations: 0,
+        label: {
+          color: '#334155',
+          fontSize: 12,
+          formatter: ({ name }) => name.length > 8 ? `${name.slice(0, 8)}…` : name,
+        },
+        lineStyle: { color: 'gradient', opacity: 0.35, curveness: 0.5 },
+        data: [...sourceNodes, ...targetNodes],
+        links,
+      }],
+    };
+  }, [decisions, textbooks]);
+
   const tabItems = [
     {
       key: 'integration',
@@ -566,6 +640,18 @@ export default function App() {
                 </Tag>
               </Space>
             </Space>
+          </Card>
+
+          <Card className="panel-card" title="整合前后对比">
+            {sankeyOption ? (
+              <ReactEChartsCore
+                option={sankeyOption}
+                style={{ height: 220 }}
+                notMerge
+              />
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无整合数据生成对比图" />
+            )}
           </Card>
 
           <Card className="panel-card" title="整合决策">
@@ -932,7 +1018,29 @@ export default function App() {
                   <Text className="graph-topbar-label">Knowledge Graph</Text>
                   <Title level={4} style={{ margin: 0, color: '#eef5ff' }}>{selectedBookMeta.title}</Title>
                 </div>
-                <Space wrap>
+                <Space wrap size={8}>
+                  <Input.Search
+                    placeholder="搜索节点..."
+                    size="small"
+                    allowClear
+                    onSearch={(val) => setGraphSearch(val)}
+                    onChange={(e) => { if (!e.target.value) setGraphSearch(''); }}
+                    className="graph-search"
+                  />
+                  {selectedBook === 'merged' && textbooks.length > 0 ? (
+                    <Select
+                      mode="multiple"
+                      size="small"
+                      placeholder="筛选教材"
+                      allowClear
+                      maxTagCount={2}
+                      maxTagPlaceholder={(omitted) => `+${omitted.length}`}
+                      style={{ minWidth: 160 }}
+                      options={textbooks.map((b) => ({ label: b.title, value: b.id }))}
+                      value={graphBookFilter}
+                      onChange={setGraphBookFilter}
+                    />
+                  ) : null}
                   <Tag color="processing">{graphData?.nodes?.length || 0} 节点</Tag>
                   <Tag color="success">{graphData?.edges?.length || 0} 边</Tag>
                 </Space>

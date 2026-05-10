@@ -20,6 +20,7 @@ const api = {
   parseTextbook: (id) => request(`/textbooks/${id}/parse`, { method: 'POST' }),
   parseAll: (force = false) => request(`/textbooks/parse-all?force=${force}`, { method: 'POST' }),
   getTextbook: (id) => request(`/textbooks/${id}`),
+  deleteTextbook: (id) => request(`/textbooks/${id}`, { method: 'DELETE' }),
 
   // Knowledge Graph
   buildKG: (id, opts = {}) => {
@@ -48,6 +49,9 @@ const api = {
     return request(`/integration/run${qs}`, { method: 'POST' });
   },
   getDecisions: () => request('/integration/decisions'),
+  getDecision: (id) => request(`/integration/decisions/${id}`),
+  acceptDecision: (id) => request(`/integration/decisions/${id}/accept`, { method: 'POST' }),
+  rejectDecision: (id) => request(`/integration/decisions/${id}/reject`, { method: 'POST' }),
   getStats: () => request('/integration/stats'),
 
   // RAG

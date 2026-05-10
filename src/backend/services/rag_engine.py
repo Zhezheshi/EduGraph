@@ -21,6 +21,9 @@ class RAGEngine:
         self.chunks: list[Chunk] = []
         self.indexed_textbooks: list[str] = []
         self.indexed_book_ids: list[str] = []
+        self.per_book_chapter_ids: dict[str, list[str]] = {}
+        self.max_chapters: int = 0
+        self.usable_only: bool = True
         self.built_at: str | None = None
         self.embeddings_path = self.settings.index_dir / "embeddings.npy"
         self.chunks_path = self.settings.index_dir / "chunks.json"
@@ -63,6 +66,9 @@ class RAGEngine:
                 {
                     "indexed_textbooks": self.indexed_textbooks,
                     "indexed_book_ids": self.indexed_book_ids,
+                    "per_book_chapter_ids": self.per_book_chapter_ids,
+                    "max_chapters": self.max_chapters,
+                    "usable_only": self.usable_only,
                     "built_at": self.built_at,
                 },
                 ensure_ascii=False,
@@ -84,6 +90,9 @@ class RAGEngine:
             meta = json.loads(self.meta_path.read_text(encoding="utf-8"))
             self.indexed_textbooks = meta.get("indexed_textbooks", [])
             self.indexed_book_ids = meta.get("indexed_book_ids", [])
+            self.per_book_chapter_ids = meta.get("per_book_chapter_ids", {})
+            self.max_chapters = meta.get("max_chapters", 0)
+            self.usable_only = meta.get("usable_only", True)
             self.built_at = meta.get("built_at")
         else:
             self.indexed_textbooks = sorted({chunk.textbook_name for chunk in self.chunks})
@@ -123,10 +132,12 @@ class RAGEngine:
         self.chunks = []
         self.indexed_textbooks = []
         self.indexed_book_ids = []
+        self.per_book_chapter_ids = {}
         for textbook in textbooks:
             self.chunks.extend(self._chunk_textbook(textbook))
             self.indexed_textbooks.append(textbook.title)
             self.indexed_book_ids.append(textbook.textbook_id)
+            self.per_book_chapter_ids[textbook.textbook_id] = [chapter.chapter_id for chapter in textbook.chapters]
 
         if not self.chunks:
             self.embeddings_np = None
@@ -217,6 +228,9 @@ class RAGEngine:
             total_chunks=len(self.chunks),
             indexed_textbooks=self.indexed_textbooks,
             indexed_book_ids=self.indexed_book_ids,
+            per_book_chapter_ids=self.per_book_chapter_ids,
+            max_chapters=self.max_chapters,
+            usable_only=self.usable_only,
             built_at=self.built_at,
             persisted=self.embeddings_path.exists() and self.chunks_path.exists(),
         )

@@ -9,6 +9,36 @@ from ..config import settings
 router = APIRouter()
 
 
+def _get_result_or_404():
+    result = load_integration_result(settings)
+    if not result:
+        raise HTTPException(404, "Integration not run yet")
+    return result
+
+
+def _find_decision_or_404(result, decision_id: str):
+    for decision in result.decisions:
+        if decision.decision_id == decision_id:
+            return decision
+    raise HTTPException(404, f"Decision not found: {decision_id}")
+
+
+def _serialize_decision(result, decision):
+    payload = decision.model_dump()
+    source_textbooks = set()
+    for node_id in decision.affected_nodes:
+        if "_node_" in node_id:
+            source_textbooks.add(node_id.split("_node_", 1)[0])
+
+    if decision.result_node_id and decision.result_node_id in result.integrated_graph.source_mapping:
+        for node_id in result.integrated_graph.source_mapping[decision.result_node_id]:
+            if "_node_" in node_id:
+                source_textbooks.add(node_id.split("_node_", 1)[0])
+
+    payload["source_textbooks"] = sorted(source_textbooks)
+    return payload
+
+
 def _ensure_kgs_loaded():
     """Load KGs from disk if not in memory."""
     if app_state["knowledge_graphs"]:
@@ -35,6 +65,10 @@ def _get_scoped_graphs(book_ids: list[str]):
             raise HTTPException(404, f"Knowledge graph not built: {book_id}")
         scoped[book_id] = kg
     return scoped
+
+
+def _selected_chapter_map(scoped_graphs):
+    return {book_id: list(kg.chapter_ids) for book_id, kg in scoped_graphs.items()}
 
 
 @router.post("/align")
@@ -80,6 +114,9 @@ async def run_integration(books: str = ""):
 
     result = await integrate_aligned_groups(all_nodes, all_edges, groups, llm_client)
     result.book_ids = selected_books
+    result.per_book_chapter_ids = _selected_chapter_map(scoped_graphs)
+    result.max_chapters = max((kg.max_chapters for kg in scoped_graphs.values()), default=0)
+    result.usable_only = all(kg.usable_only for kg in scoped_graphs.values()) if scoped_graphs else True
     result.alignment_group_count = len(groups)
     result.built_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     save_integration_result(result, settings)
@@ -87,6 +124,7 @@ async def run_integration(books: str = ""):
     return {
         "status": "integrated",
         "books": result.book_ids,
+        "per_book_chapter_ids": result.per_book_chapter_ids,
         "original_nodes": result.original_node_count,
         "integrated_nodes": result.integrated_node_count,
         "compression_ratio": f"{result.compression_ratio:.1%}",
@@ -96,19 +134,47 @@ async def run_integration(books: str = ""):
 
 @router.get("/decisions")
 async def get_decisions():
-    result = load_integration_result(settings)
-    if not result:
-        raise HTTPException(404, "Integration not run yet")
-    return [d.model_dump() for d in result.decisions]
+    result = _get_result_or_404()
+    return [_serialize_decision(result, decision) for decision in result.decisions]
+
+
+@router.get("/decisions/{decision_id}")
+async def get_decision(decision_id: str):
+    result = _get_result_or_404()
+    decision = _find_decision_or_404(result, decision_id)
+    return _serialize_decision(result, decision)
+
+
+def _update_decision_status(decision_id: str, status: str):
+    result = _get_result_or_404()
+    decision = _find_decision_or_404(result, decision_id)
+    decision.status = status
+    result.built_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    save_integration_result(result, settings)
+    return {
+        "status": "updated",
+        "decision": _serialize_decision(result, decision),
+    }
+
+
+@router.post("/decisions/{decision_id}/accept")
+async def accept_decision(decision_id: str):
+    return _update_decision_status(decision_id, "accepted")
+
+
+@router.post("/decisions/{decision_id}/reject")
+async def reject_decision(decision_id: str):
+    return _update_decision_status(decision_id, "rejected")
 
 
 @router.get("/stats")
 async def get_stats():
-    result = load_integration_result(settings)
-    if not result:
-        raise HTTPException(404, "Integration not run yet")
+    result = _get_result_or_404()
     return {
         "book_ids": result.book_ids,
+        "per_book_chapter_ids": result.per_book_chapter_ids,
+        "max_chapters": result.max_chapters,
+        "usable_only": result.usable_only,
         "alignment_group_count": result.alignment_group_count,
         "built_at": result.built_at,
         "original_total_chars": result.original_total_chars,

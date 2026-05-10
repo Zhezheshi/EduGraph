@@ -49,6 +49,9 @@ class KnowledgeGraph(BaseModel):
     chapters_processed: int = 0
     chapters_total: int = 0
     chapter_ids: list[str] = []
+    chapter_titles: dict[str, str] = {}
+    max_chapters: int = 0
+    usable_only: bool = True
     built_at: Optional[str] = None
 
 
@@ -77,6 +80,9 @@ class IntegrationResult(BaseModel):
     original_node_count: int
     integrated_node_count: int
     book_ids: list[str] = []
+    per_book_chapter_ids: dict[str, list[str]] = {}
+    max_chapters: int = 0
+    usable_only: bool = True
     alignment_group_count: int = 0
     built_at: Optional[str] = None
 
@@ -123,6 +129,9 @@ class IndexStatus(BaseModel):
     total_chunks: int
     indexed_textbooks: list[str] = []
     indexed_book_ids: list[str] = []
+    per_book_chapter_ids: dict[str, list[str]] = {}
+    max_chapters: int = 0
+    usable_only: bool = True
     built_at: Optional[str] = None
     persisted: bool = False
 

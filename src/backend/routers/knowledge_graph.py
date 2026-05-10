@@ -21,6 +21,10 @@ def _select_target_chapters(parsed, max_chapters: int, usable_only: bool = True)
     return select_chapters(parsed.chapters, max_chapters=max_chapters, usable_only=usable_only)
 
 
+def _chapter_title_map(chapters):
+    return {chapter.chapter_id: chapter.title for chapter in chapters}
+
+
 async def run_kg_build(book_id: str, max_chapters: int = 0, force: bool = False, usable_only: bool = True):
     from ..services.extractor import extract_knowledge_graph
     from ..llm import llm_client
@@ -30,13 +34,16 @@ async def run_kg_build(book_id: str, max_chapters: int = 0, force: bool = False,
         raise HTTPException(404, "Textbook not parsed")
 
     target_chapters = _select_target_chapters(parsed, max_chapters, usable_only=usable_only)
+    target_chapter_ids = [chapter.chapter_id for chapter in target_chapters]
     existing_graph = load_knowledge_graph(book_id, settings)
     if existing_graph:
         enrich_knowledge_graph_metadata(existing_graph, parsed)
 
     build_status = "built"
     if existing_graph and not force:
-        if existing_graph.chapters_processed >= len(target_chapters) and existing_graph.nodes:
+        existing_ids = set(existing_graph.chapter_ids)
+        missing_ids = [chapter_id for chapter_id in target_chapter_ids if chapter_id not in existing_ids]
+        if not missing_ids and existing_graph.nodes:
             save_knowledge_graph(existing_graph, settings)
             return {
                 "status": "skipped",
@@ -46,8 +53,8 @@ async def run_kg_build(book_id: str, max_chapters: int = 0, force: bool = False,
                 "chapters_processed": existing_graph.chapters_processed,
                 "chapters_total": len(parsed.chapters),
             }
-        if 0 < existing_graph.chapters_processed < len(target_chapters):
-            remaining_chapters = target_chapters[existing_graph.chapters_processed:]
+        if missing_ids:
+            remaining_chapters = [chapter for chapter in target_chapters if chapter.chapter_id in missing_ids]
             incremental_graph = await extract_knowledge_graph(
                 llm_client,
                 book_id,
@@ -59,21 +66,30 @@ async def run_kg_build(book_id: str, max_chapters: int = 0, force: bool = False,
                 textbook_id=book_id,
                 nodes=existing_graph.nodes + incremental_graph.nodes,
                 edges=existing_graph.edges + incremental_graph.edges,
-                chapters_processed=len(target_chapters),
+                chapters_processed=len(target_chapter_ids),
                 chapters_total=len(parsed.chapters),
-                chapter_ids=[chapter.chapter_id for chapter in target_chapters],
+                chapter_ids=target_chapter_ids,
+                chapter_titles=_chapter_title_map(target_chapters),
+                max_chapters=max_chapters,
+                usable_only=usable_only,
                 built_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
             )
             build_status = "resumed"
         else:
             kg = await extract_knowledge_graph(llm_client, book_id, parsed.title, target_chapters)
             kg.chapters_total = len(parsed.chapters)
-            kg.chapter_ids = [chapter.chapter_id for chapter in target_chapters]
+            kg.chapter_ids = target_chapter_ids
+            kg.chapter_titles = _chapter_title_map(target_chapters)
+            kg.max_chapters = max_chapters
+            kg.usable_only = usable_only
             kg.built_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     else:
         kg = await extract_knowledge_graph(llm_client, book_id, parsed.title, target_chapters)
         kg.chapters_total = len(parsed.chapters)
-        kg.chapter_ids = [chapter.chapter_id for chapter in target_chapters]
+        kg.chapter_ids = target_chapter_ids
+        kg.chapter_titles = _chapter_title_map(target_chapters)
+        kg.max_chapters = max_chapters
+        kg.usable_only = usable_only
         kg.built_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
     save_knowledge_graph(kg, settings)
