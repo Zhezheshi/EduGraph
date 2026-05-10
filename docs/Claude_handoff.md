@@ -1,6 +1,6 @@
 # Claude Handoff
 
-Last session: 2026-05-10
+Last session: 2026-05-10 (v2: added chapters, accept/reject, delete, Markdown report)
 
 ## Scope
 
@@ -20,6 +20,11 @@ Last session: 2026-05-10
 - RAG 问答添加 citation 卡片展示
 - Loading 改为 Spin 组件 + 半透明遮罩
 - API client 全面重写，统一错误处理
+- 补了章节覆盖视图（选教材显示章节列表、页码、字数、KG 状态）
+- 报告页升级为 Markdown 摘要 + 统计卡片
+- 局部 Loading 替代全屏遮罩
+- 整合决策 accept/reject 按钮
+- 教材列表删除按钮
 
 ### 文档
 
@@ -43,17 +48,15 @@ Last session: 2026-05-10
 ## 前端仍存在的问题
 
 1. 图谱节点过多时 ECharts force 布局可能变慢（>500 节点时需考虑虚拟化）
-2. 报告 Tab 只展示了 stats JSON，未渲染完整 Markdown 报告
-3. 无章节列表展示（需要后端 `GET /api/kg/{book_id}/chapters`）
-4. 中文教材标题在 DB 中存储为乱码（后端问题，非前端）
-5. 无删除教材功能（需要后端 DELETE API）
-6. 整合决策无 accept/reject 按钮（需要后端 API）
+2. chunk size 警告（不影响运行）
+3. 中文教材标题在 DB 中存储为乱码（后端问题，非前端）
+4. 整合 stale=True 会持续影响章节列表和决策展示的准确性
 
 ## 待 Codex 补充的后端 API
 
-1. `GET /api/kg/{book_id}/chapters` — 列出已解析教材的章节列表
-2. `DELETE /api/textbooks/{book_id}` — 删除教材（含清理文件）
-3. `GET /api/integration/decisions/{id}` — 单条决策详情
-4. `POST /api/integration/decisions/{id}/accept` — 接受决策
-5. `POST /api/integration/decisions/{id}/reject` — 拒绝决策
-6. `GET /api/kg/{book_id}/chapters/{chapter_id}` — 获取单章内容
+1. ~~`GET /api/kg/{book_id}/chapters`~~ — **已完成** (2026-05-10)
+2. ~~`DELETE /api/textbooks/{book_id}`~~ — **已完成** (2026-05-10)
+3. ~~`GET /api/integration/decisions/{id}`~~ — **已完成** (2026-05-10)
+4. ~~`POST /api/integration/decisions/{id}/accept`~~ — **已完成** (2026-05-10)
+5. ~~`POST /api/integration/decisions/{id}/reject`~~ — **已完成** (2026-05-10)
+6. `GET /api/kg/{book_id}/chapters/{chapter_id}` — 获取单章内容（未实现）

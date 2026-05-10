@@ -1,6 +1,6 @@
 # Current Status
 
-Last updated: 2026-05-10 by Claude
+Last updated: 2026-05-10 by Claude (v2: sync after Codex frontend+backend patch)
 
 ## Data State
 
@@ -35,10 +35,24 @@ Last updated: 2026-05-10 by Claude
 | Upload | OK | 7 books, system-assigned book_id |
 | Parse | OK | All 7 parsed with new parser |
 | KG Build | Partial 2ch | All 7 have 2 chapters |
-| Integration | OK | 7 books, stale=False |
-| RAG Index | OK | 7 books, 794 chunks, stale=False |
-| Teacher Chat | Untested | Needs real integration data |
-| Report | Needs update | Report has old 620-node data |
+| Integration | OK | 7 books, stale=True (needs re-run) |
+| RAG Index | OK | 7 books, 794 chunks |
+| Teacher Chat | Untested | actions_taken 始终为空 |
+| Report | OK | Markdown 摘要 + 统计卡片 |
+
+## Frontend Status
+
+| Feature | Status | Notes |
+|---|---|---|
+| 教材列表 + 删除 | OK | DELETE /api/textbooks/{book_id} |
+| 章节覆盖视图 | OK | GET /api/kg/{book_id}/chapters |
+| 知识图谱 ECharts | OK | 力导向图，500+ 节点有性能风险 |
+| 整合统计卡片 | OK | 压缩比/节点数/决策数 |
+| 整合决策 accept/reject | OK | POST /api/integration/decisions/{id}/accept\|reject |
+| RAG 问答 + 引用 | OK | 5 条引用，分数 ~0.60-0.61 |
+| 报告页 Markdown | OK | 统计概览 + Markdown 摘要 |
+| 局部 Loading | OK | 不再全屏遮罩 |
+| npm run build | OK | 有 chunk size 警告，不影响运行 |
 
 ## Current Blockers
 
