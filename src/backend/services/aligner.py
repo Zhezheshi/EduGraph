@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 async def align_cross_textbooks(all_nodes: dict[str, list[KnowledgeNode]], llm: LLMClient, threshold=0.85):
+    """跨教材对齐知识点，通过嵌入相似度筛选候选对，再利用LLM判断是否为同一概念，返回对齐分组列表。"""
     flat = []
     for book_id, nodes in all_nodes.items():
         for n in nodes:

@@ -18,4 +18,18 @@ def build_alignment_prompt(node_a, node_b):
 知识点B：
 - 名称：{node_b['name']}
 - 定义：{node_b['definition']}
-- 来源：{node_b['textbook_id']} {node_b['chapter']}"""
+- 来源：{node_b['textbook_id']} {node_b['chapter']}
+
+## 示例
+知识点A：
+- 名称：白细胞
+- 定义：白细胞是血液中的一类有核细胞，参与机体免疫防御反应
+- 来源：physiology_ch3 第三章 血液
+
+知识点B：
+- 名称：Leukocyte
+- 定义：Leukocytes are nucleated blood cells that participate in immune defense responses
+- 来源：immunology_ch2 第二章 免疫细胞
+
+输出：
+{{"judgment": "same", "confidence": 0.95, "reason": "白细胞与Leukocyte定义核心内容完全一致，仅语言不同"}}"""

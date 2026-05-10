@@ -11,6 +11,7 @@ import {
   Empty,
   Input,
   Layout,
+  Modal,
   Row,
   Select,
   Space,
@@ -257,27 +258,37 @@ export default function App() {
     }
   };
 
-  const handleDeleteTextbook = async (bookId) => {
-    setButtonBusy(`delete:${bookId}`, true);
-    try {
-      const result = await api.deleteTextbook(bookId);
-      if (selectedBook === bookId) {
-        setSelectedBook('merged');
-        setSelectedChapters(null);
-        setGraphData(null);
-        setNodeDetail(null);
-      }
-      await refreshAll();
-      if (result.integration_invalidated || result.rag_invalidated) {
-        messageApi.warning(`教材已删除，${result.integration_invalidated ? '整合结果' : ''}${result.integration_invalidated && result.rag_invalidated ? '和' : ''}${result.rag_invalidated ? 'RAG 索引' : ''}已失效。`);
-      } else {
-        messageApi.success('教材已删除');
-      }
-    } catch (error) {
-      messageApi.error(`删除失败：${error.message}`);
-    } finally {
-      setButtonBusy(`delete:${bookId}`, false);
-    }
+  const handleDeleteTextbook = (bookId) => {
+    const book = textbooks.find((b) => b.id === bookId);
+    Modal.confirm({
+      title: '确认删除教材',
+      content: `确定要删除「${book?.title || bookId}」吗？此操作不可恢复，相关整合结果和 RAG 索引将失效。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setButtonBusy(`delete:${bookId}`, true);
+        try {
+          const result = await api.deleteTextbook(bookId);
+          if (selectedBook === bookId) {
+            setSelectedBook('merged');
+            setSelectedChapters(null);
+            setGraphData(null);
+            setNodeDetail(null);
+          }
+          await refreshAll();
+          if (result.integration_invalidated || result.rag_invalidated) {
+            messageApi.warning(`教材已删除，${result.integration_invalidated ? '整合结果' : ''}${result.integration_invalidated && result.rag_invalidated ? '和' : ''}${result.rag_invalidated ? 'RAG 索引' : ''}已失效。`);
+          } else {
+            messageApi.success('教材已删除');
+          }
+        } catch (error) {
+          messageApi.error(`删除失败：${error.message}`);
+        } finally {
+          setButtonBusy(`delete:${bookId}`, false);
+        }
+      },
+    });
   };
 
   const handleShowGraph = async (bookId) => {

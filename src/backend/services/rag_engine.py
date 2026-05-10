@@ -1,8 +1,10 @@
 import json
 import logging
+import os
 from datetime import datetime, timezone
 
 import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ..config import Settings
@@ -129,6 +131,7 @@ class RAGEngine:
         return self._status()
 
     async def build_index(self, textbooks: list[ParsedTextbook]) -> IndexStatus:
+        """将多本教材分块并生成向量嵌入，构建用于语义检索的RAG索引，同时持久化到磁盘。"""
         self.chunks = []
         self.indexed_textbooks = []
         self.indexed_book_ids = []
@@ -169,7 +172,29 @@ class RAGEngine:
         top_indices = np.argsort(similarities)[::-1][:top_k]
         return similarities[top_indices], top_indices
 
+    def _search_hybrid(self, query_vec: np.ndarray, query_text: str, top_k: int):
+        """混合检索：结合向量相似度（0.7权重）与TF-IDF余弦相似度（0.3权重）。"""
+        # 向量检索部分
+        query_vec = query_vec / max(np.linalg.norm(query_vec), 1e-10)
+        vec_scores = cosine_similarity(query_vec, self.embeddings_np)[0]
+
+        # TF-IDF检索部分
+        corpus = [chunk.content for chunk in self.chunks]
+        try:
+            tfidf = TfidfVectorizer()
+            tfidf_matrix = tfidf.fit_transform(corpus)
+            query_tfidf = tfidf.transform([query_text])
+            tfidf_scores = cosine_similarity(query_tfidf, tfidf_matrix).toarray()[0]
+        except Exception:
+            tfidf_scores = np.zeros(len(self.chunks))
+
+        # 加权融合
+        combined_scores = 0.7 * vec_scores + 0.3 * tfidf_scores
+        top_indices = np.argsort(combined_scores)[::-1][:top_k]
+        return combined_scores[top_indices], top_indices
+
     async def query(self, question: str) -> QueryResponse:
+        """根据用户问题在已构建的向量索引中检索相关文本块，调用LLM生成回答并返回引用来源。"""
         if self.embeddings_np is None and self.chunks_path.exists():
             self.load_from_disk()
 
@@ -179,7 +204,12 @@ class RAGEngine:
         query_embedding = await self.llm.embed([question])
         query_vector = np.array(query_embedding, dtype=np.float32)
         top_k = min(self.settings.rag_top_k, len(self.chunks))
-        scores, indices = self._search(query_vector, top_k)
+
+        use_hybrid = os.environ.get("RAG_HYBRID", "0").strip() in ("1", "true", "True")
+        if use_hybrid:
+            scores, indices = self._search_hybrid(query_vector, question, top_k)
+        else:
+            scores, indices = self._search(query_vector, top_k)
 
         retrieved = []
         for score, idx in zip(scores, indices):

@@ -9,7 +9,7 @@ from ..database import SessionLocal, TextbookDB
 from ..config import settings
 from ..state import app_state, load_integration_result, save_parsed_textbook
 
-from ..services.parser import parse_pdf, parse_txt, parse_md
+from ..services.parser import parse_pdf, parse_txt, parse_md, parse_docx
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,6 +54,8 @@ def _parse_uploaded_book(book: TextbookDB):
         parsed = parse_txt(str(filepath), book.id, display_filename)
     elif ext in (".md", ".markdown"):
         parsed = parse_md(str(filepath), book.id, display_filename)
+    elif ext == ".docx":
+        parsed = parse_docx(str(filepath), book.id, display_filename)
     else:
         raise HTTPException(400, f"Unsupported format: {ext}")
     return parsed, ext.lstrip(".")

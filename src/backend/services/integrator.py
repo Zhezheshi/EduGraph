@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 async def integrate_aligned_groups(all_nodes, all_edges, alignment_groups, llm: LLMClient):
+    """根据对齐分组结果，通过LLM决策合并、删除或保留重复知识点，生成最终整合后的知识图谱。"""
     node_lookup = {}
     for nodes in all_nodes.values():
         for n in nodes:

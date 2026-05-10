@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 import fitz
+from docx import Document
 
 from ..models import Chapter, ParsedTextbook
 
@@ -376,3 +377,61 @@ def parse_txt(filepath: str, textbook_id: str, filename: str) -> ParsedTextbook:
 
 def parse_md(filepath: str, textbook_id: str, filename: str) -> ParsedTextbook:
     return parse_txt(filepath, textbook_id, filename)
+
+
+def parse_docx(filepath: str, textbook_id: str, filename: str) -> ParsedTextbook:
+    """使用python-docx解析.docx文件，按标题拆分为章节，返回统一格式的ParsedTextbook。"""
+    doc = Document(filepath)
+    chapters: list[Chapter] = []
+    buffer: list[str] = []
+    current_title = "全文"
+
+    def flush() -> None:
+        nonlocal buffer, current_title
+        chapter_content = "\n".join(buffer).strip()
+        if not chapter_content:
+            return
+        chapters.append(Chapter(
+            chapter_id=f"ch_{len(chapters) + 1:02d}",
+            title=current_title,
+            page_start=1,
+            page_end=1,
+            content=chapter_content,
+            char_count=len(chapter_content),
+        ))
+        buffer = []
+
+    for para in doc.paragraphs:
+        text = _sanitize(para.text)
+        if not text:
+            continue
+        style_name = (para.style.name or "").lower() if para.style else ""
+        is_heading = "heading" in style_name
+        if is_heading or _looks_like_chapter_title(text):
+            flush()
+            current_title = _sanitize_title(text) or current_title
+            continue
+        buffer.append(text)
+
+    flush()
+    if not chapters:
+        full_text = "\n".join(_sanitize(p.text) for p in doc.paragraphs if _sanitize(p.text)).strip()
+        chapters = [Chapter(
+            chapter_id="ch_01",
+            title="全文",
+            page_start=1,
+            page_end=1,
+            content=full_text,
+            char_count=len(full_text),
+        )]
+
+    total_chars = sum(ch.char_count for ch in chapters)
+    return ParsedTextbook(
+        textbook_id=textbook_id,
+        filename=filename,
+        title=_title_from_filename(filename),
+        total_pages=1,
+        total_chars=total_chars,
+        chapters=chapters,
+        format="docx",
+    )

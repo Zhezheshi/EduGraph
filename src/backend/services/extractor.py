@@ -15,6 +15,7 @@ async def extract_knowledge_graph(
     chapters: list[Chapter],
     node_counter_start: int = 0,
 ):
+    """逐章逐段调用LLM从教材文本中提取知识点节点和关系边，构建完整的知识图谱。"""
     all_nodes, all_edges = [], []
     node_counter = node_counter_start
 

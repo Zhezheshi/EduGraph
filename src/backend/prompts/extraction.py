@@ -47,4 +47,21 @@ def build_extraction_user_prompt(textbook_name, chapter_title, page, text):
   "edges": [
     {{"source": "源知识点", "target": "目标知识点", "relation_type": "prerequisite", "description": "关系描述", "strength": 0.8}}
   ]
+}}
+
+## 示例
+输入文本：
+"炎症是具有血管系统的活体组织对损伤因子所发生的防御反应。炎症的基本病理变化包括变质、渗出和增生三个过程。变质是炎症局部组织发生的变性和坏死，渗出是炎症局部组织血管内的液体和细胞成分通过血管壁进入组织间隙的过程。"
+
+输出：
+{{
+  "nodes": [
+    {{"name": "炎症", "definition": "具有血管系统的活体组织对损伤因子所发生的防御反应", "category": "核心概念"}},
+    {{"name": "变质", "definition": "炎症局部组织发生的变性和坏死", "category": "过程"}},
+    {{"name": "渗出", "definition": "炎症局部组织血管内的液体和细胞成分通过血管壁进入组织间隙的过程", "category": "过程"}}
+  ],
+  "edges": [
+    {{"source": "炎症", "target": "变质", "relation_type": "contains", "description": "变质是炎症的基本病理变化之一", "strength": 0.9}},
+    {{"source": "炎症", "target": "渗出", "relation_type": "contains", "description": "渗出是炎症的基本病理变化之一", "strength": 0.9}}
+  ]
 }}"""
