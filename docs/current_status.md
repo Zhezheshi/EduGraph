@@ -1,6 +1,6 @@
 # Current Status
 
-Last updated: 2026-05-10 by Claude (v2: sync after Codex frontend+backend patch)
+Last updated: 2026-05-10 by Claude (v3: sync — both sides verified source_textbooks, all new APIs live)
 
 ## Data State
 
@@ -45,10 +45,11 @@ Last updated: 2026-05-10 by Claude (v2: sync after Codex frontend+backend patch)
 | Feature | Status | Notes |
 |---|---|---|
 | 教材列表 + 删除 | OK | DELETE /api/textbooks/{book_id} |
-| 章节覆盖视图 | OK | GET /api/kg/{book_id}/chapters |
+| 章节覆盖视图 | OK | GET /api/kg/{book_id}/chapters，含进度条 |
 | 知识图谱 ECharts | OK | 力导向图，500+ 节点有性能风险 |
 | 整合统计卡片 | OK | 压缩比/节点数/决策数 |
 | 整合决策 accept/reject | OK | POST /api/integration/decisions/{id}/accept\|reject |
+| 决策 source_textbooks | OK | GET /api/integration/decisions 返回 |
 | RAG 问答 + 引用 | OK | 5 条引用，分数 ~0.60-0.61 |
 | 报告页 Markdown | OK | 统计概览 + Markdown 摘要 |
 | 局部 Loading | OK | 不再全屏遮罩 |

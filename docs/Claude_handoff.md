@@ -50,8 +50,10 @@ Last session: 2026-05-10 (v3: demo polish — decision sources, chapter progress
 1. 图谱节点过多时 ECharts force 布局可能变慢（>500 节点时需考虑虚拟化）
 2. chunk size 警告（不影响运行）
 3. 中文教材标题在 DB 中存储为乱码（后端问题，非前端）
-4. 整合 stale=True 会持续影响章节列表和决策展示的准确性
-5. 决策 `source_textbooks` 字段依赖后端返回，若后端未提供则不展示
+4. 整合 stale=True 会持续影响章节列表和决策展示的准确性（等后端修 KG 章节范围一致性）
+5. 决策详情目前是列表堆文本，未来可做抽屉式详情页
+6. 删除教材前缺确认弹窗
+7. 图谱大节点数时无默认筛选/分层显示
 
 ## 待 Codex 补充的后端 API
 
